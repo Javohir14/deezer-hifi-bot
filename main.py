@@ -161,26 +161,63 @@ async def process_message(message: types.Message):
                 shutil.rmtree(user_folder, ignore_errors=True)
 
 from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 async def handle_health_check(request):
     return web.Response(text="Bot is running!")
 
+async def on_startup(bot: Bot):
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        await bot.set_webhook(f"{webhook_url}/webhook")
+        logger.info(f"Webhook set to: {webhook_url}/webhook")
+    else:
+        logger.warning("WEBHOOK_URL not found, falling back to polling.")
+
 async def main():
     logger.info("Bot is starting...")
     
-    # Start health check server for Render
-    app = web.Application()
-    app.router.add_get("/", handle_health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
-    asyncio.create_task(site.start())
-    logger.info(f"Health check server started on port {os.getenv('PORT', 8080)}")
-
-    await dp.start_polling(bot)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    
+    if webhook_url:
+        # Webhook mode for Render
+        app = web.Application()
+        app.router.add_get("/healthz", handle_health_check)
+        
+        # Setup aiogram webhook handler
+        webhook_requests_handler = SimpleRequestHandler(
+            dispatcher=dp,
+            bot=bot,
+        )
+        webhook_requests_handler.register(app, path="/webhook")
+        
+        setup_application(app, dp, bot=bot)
+        
+        app.on_startup.append(lambda _: on_startup(bot))
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.getenv("PORT", 8080))
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        
+        logger.info(f"Bot running in WEBHOOK mode on port {port}")
+        # Keep the application running
+        await asyncio.Event().wait()
+    else:
+        # Polling mode for local testing
+        app = web.Application()
+        app.router.add_get("/healthz", handle_health_check)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
+        asyncio.create_task(site.start())
+        
+        logger.info("Bot running in POLLING mode")
+        await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped.")
