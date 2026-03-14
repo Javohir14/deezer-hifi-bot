@@ -160,9 +160,27 @@ async def process_message(message: types.Message):
             if os.path.exists(user_folder):
                 shutil.rmtree(user_folder, ignore_errors=True)
 
+from aiohttp import web
+
+async def handle_health_check(request):
+    return web.Response(text="Bot is running!")
+
 async def main():
     logger.info("Bot is starting...")
+    
+    # Start health check server for Render
+    app = web.Application()
+    app.router.add_get("/", handle_health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
+    asyncio.create_task(site.start())
+    logger.info(f"Health check server started on port {os.getenv('PORT', 8080)}")
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
