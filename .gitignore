@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+.env.*
+
+# Bot specific
+downloads/
+config/
+test.txt
